@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doomich_api.db import RlsContext
 from doomich_api.models import AppUser, StudyGroup, University
+
+
+def utc_offset_minutes(timezone: str, at: datetime | None = None) -> int:
+    """Смещение часового пояса от UTC в минутах на момент `at` (с учётом летнего времени)."""
+    try:
+        zone = ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        return 0
+    offset = (at or datetime.now(UTC)).astimezone(zone).utcoffset()
+    return int(offset.total_seconds() // 60) if offset else 0
 
 
 @dataclass

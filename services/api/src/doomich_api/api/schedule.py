@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import distinct, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from doomich_api.api.deps import current_user, user_session
@@ -58,8 +58,9 @@ async def schedule(
             id=e.id,
             uid=e.uid,
             group_id=e.group_id,
-            starts_at=e.starts_at,
-            ends_at=e.ends_at,
+            # время в часовом поясе вуза: клиент показывает пары по часам вуза на любом устройстве
+            starts_at=e.starts_at.astimezone(user.tz),
+            ends_at=e.ends_at.astimezone(user.tz),
             subject=e.subject,
             kind=e.kind,
             room=e.room,
@@ -101,10 +102,13 @@ async def teachers(
     session: AsyncSession = Depends(user_session),
 ):
     """Список преподавателей (только если вуз разрешил хранить ФИО). Выбор хранится на устройстве."""
-    stmt = select(distinct(ScheduleEvent.teacher)).where(
-        ScheduleEvent.university_id == user.university_id, ScheduleEvent.teacher.is_not(None)
+    stmt = (
+        select(ScheduleEvent.teacher)
+        .distinct()
+        .where(ScheduleEvent.university_id == user.university_id, ScheduleEvent.teacher.is_not(None))
     )
     if q.strip():
-        stmt = stmt.where(ScheduleEvent.teacher.ilike(f"%{q.strip()}%"))
+        pattern = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        stmt = stmt.where(ScheduleEvent.teacher.ilike(f"%{pattern}%", escape="\\"))
     rows = await session.execute(stmt.order_by(ScheduleEvent.teacher).limit(50))
     return [t for t in rows.scalars() if t]

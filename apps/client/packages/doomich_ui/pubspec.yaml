@@ -1,0 +1,37 @@
+name: doomich_ui
+description: Общий интерфейс «Думыча» для мобильного и десктопного приложений — экраны, тема, локализация, состояние, звук.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.14.0
+  flutter: ">=3.50.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  material_ui: ^1.11.1
+  cupertino_ui: ^1.1.7
+  intl: any
+  doomich_core:
+    path: ../doomich_core
+  flutter_riverpod: ^3.5.0
+  flutter_secure_storage: ^11.2.0
+  path_provider: ^2.1.6
+  shared_preferences: ^2.5.6
+  file_picker: ^13.3.3
+  record: ^7.2.0
+  audioplayers: ^6.8.1
+  gpt_markdown: ^1.4.1
+  url_launcher: ^6.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  generate: true

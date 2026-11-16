@@ -1,0 +1,269 @@
+{
+  "@@locale": "ru",
+  "appTitle": "Думыч",
+  "ok": "ОК",
+  "cancel": "Отмена",
+  "save": "Сохранить",
+  "delete": "Удалить",
+  "retry": "Повторить",
+  "close": "Закрыть",
+  "next": "Далее",
+  "back": "Назад",
+  "copy": "Скопировать",
+  "copied": "Скопировано",
+  "loading": "Загрузка…",
+  "errorGeneric": "Что-то пошло не так",
+  "offlineBadge": "Нет сети — сохранённая копия от {time}",
+  "@offlineBadge": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomeTitle": "Привет! Я Думыч",
+  "welcomeSubtitle": "ИИ-помощник для учёбы: отвечаю на вопросы текстом и голосом, знаю расписание и читаю ваши документы.",
+  "welcomePrivacy": "Без телефона, почты и имени — только псевдоним.",
+  "language": "Язык",
+  "theme": "Тема",
+  "themeSystem": "Как в системе",
+  "themeLight": "Светлая",
+  "themeDark": "Тёмная",
+  "start": "Начать",
+  "haveAccount": "У меня уже есть аккаунт",
+  "inviteTitle": "Код приглашения",
+  "inviteHelp": "Код выдаёт вуз или куратор группы. Можно отсканировать QR-код.",
+  "scanQr": "Сканировать QR",
+  "inviteInvalid": "Код недействителен или уже использован",
+  "inviteJoining": "Вы присоединяетесь к «{university}»",
+  "@inviteJoining": {
+    "placeholders": {
+      "university": {
+        "type": "String"
+      }
+    }
+  },
+  "roleStudent": "студент",
+  "roleTeacher": "преподаватель",
+  "groupLabel": "Группа {group}",
+  "@groupLabel": {
+    "placeholders": {
+      "group": {
+        "type": "String"
+      }
+    }
+  },
+  "accountTitle": "Создайте аккаунт",
+  "pseudonymLabel": "Псевдоним",
+  "pseudonymHelp": "Не используйте настоящее имя — так мы не храним персональные данные.",
+  "pseudonymLooksLikeName": "Похоже на настоящее имя. Лучше выберите псевдоним.",
+  "pseudonymTaken": "Этот псевдоним уже занят",
+  "suggestions": "Варианты",
+  "passwordLabel": "Пароль",
+  "passwordHelp": "Не короче 10 символов",
+  "passwordWeak": "Слабый пароль",
+  "passwordMedium": "Средний пароль",
+  "passwordStrong": "Надёжный пароль",
+  "agreeTerms": "Я принимаю пользовательское соглашение и правила обработки данных",
+  "createAccount": "Создать аккаунт",
+  "recoveryTitle": "Код восстановления",
+  "recoveryText": "Это единственный способ вернуть доступ: у нас нет вашей почты и телефона. Сохраните код в надёжном месте.",
+  "recoverySaved": "Я сохранил код",
+  "saveToFile": "Сохранить в файл",
+  "loginTitle": "Вход",
+  "login": "Войти",
+  "forgotPassword": "Забыли пароль?",
+  "recoverTitle": "Восстановление доступа",
+  "recoveryCodeLabel": "Код восстановления",
+  "newPasswordLabel": "Новый пароль",
+  "recover": "Восстановить",
+  "newRecoveryCode": "Новый код восстановления — сохраните его",
+  "serverAddress": "Адрес сервера",
+  "serverAddressHelp": "Если ваш вуз использует собственный сервер «Думыча»",
+  "qrDesktopLogin": "Войти по QR с телефона",
+  "qrDesktopHint": "Откройте «Думыч» на телефоне → Настройки → «Войти на компьютере» и наведите камеру на код.",
+  "approveDesktopLogin": "Войти на компьютере",
+  "desktopLoginApproved": "Вход на компьютере подтверждён",
+  "navChat": "Чат",
+  "navSchedule": "Расписание",
+  "navDocuments": "Документы",
+  "navLectures": "Конспекты",
+  "navSettings": "Настройки",
+  "newChat": "Новый чат",
+  "chats": "Чаты",
+  "noChats": "Пока нет чатов",
+  "inputHint": "Спросите Думыча…",
+  "send": "Отправить",
+  "stop": "Остановить",
+  "incognito": "Инкогнито",
+  "incognitoHint": "Этот чат не сохраняется на сервере",
+  "holdToTalk": "Удерживайте, чтобы говорить",
+  "tapToTalk": "Нажмите, чтобы говорить",
+  "listening": "Слушаю…",
+  "thinking": "Думаю…",
+  "toolSchedule": "Смотрю расписание…",
+  "toolDocuments": "Ищу в документах…",
+  "toolUniversity": "Ищу в справке вуза…",
+  "toolNavigate": "Строю маршрут…",
+  "sources": "Источники",
+  "pageShort": "стр. {page}",
+  "@pageShort": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "rename": "Переименовать",
+  "renameChat": "Переименовать чат",
+  "deleteChatConfirm": "Удалить чат? Это действие нельзя отменить.",
+  "helpful": "Полезно",
+  "notHelpful": "Не помогло",
+  "feedbackThanks": "Спасибо за оценку!",
+  "attachDialog": "Приложить вопрос и ответ к оценке",
+  "speak": "Озвучить",
+  "documentScope": "Вопросы по документам: {count}",
+  "@documentScope": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emptyChatHint": "Спросите что-нибудь: «Какая у меня следующая пара?», «Объясни производную», «Что сказано в методичке про отчёт?»",
+  "micPermission": "Нужен доступ к микрофону",
+  "voiceError": "Не удалось распознать речь",
+  "shortcutsHint": "Ctrl+Пробел — удерживайте для голоса · Ctrl+N — новый чат",
+  "chooseGroup": "Выбрать группу",
+  "groupSearch": "Найти группу",
+  "noGroup": "Группа не выбрана",
+  "noClasses": "Занятий нет",
+  "nowLabel": "Сейчас",
+  "nextLabel": "Следующая",
+  "today": "Сегодня",
+  "thisWeek": "Эта неделя",
+  "nextWeek": "Следующая неделя",
+  "roomShort": "ауд. {room}",
+  "@roomShort": {
+    "placeholders": {
+      "room": {
+        "type": "String"
+      }
+    }
+  },
+  "buildingShort": "корп. {building}",
+  "@buildingShort": {
+    "placeholders": {
+      "building": {
+        "type": "String"
+      }
+    }
+  },
+  "subgroupShort": "подгруппа {n}",
+  "@subgroupShort": {
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "updatedAt": "Обновлено {time}",
+  "@updatedAt": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "teacherSchedule": "Расписание преподавателя",
+  "upload": "Загрузить",
+  "uploadHint": "PDF, DOCX, XLSX, PPTX, TXT — до 20 МБ",
+  "noDocuments": "Документов пока нет",
+  "statusQueued": "В очереди",
+  "statusProcessing": "Обрабатывается",
+  "statusReady": "Готов",
+  "statusFailed": "Ошибка",
+  "askDocument": "Спросить по документу",
+  "deleteDocumentConfirm": "Удалить документ вместе с поисковым индексом?",
+  "pagesCount": "{count} стр.",
+  "@pagesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "uploadLecture": "Загрузить запись",
+  "lectureTitle": "Название лекции",
+  "teacherConsent": "Преподаватель разрешил запись лекции",
+  "templateDetailed": "Подробный конспект",
+  "templateShort": "Краткий конспект",
+  "templateGlossary": "Глоссарий",
+  "templateQuestions": "Вопросы для самопроверки",
+  "lectureProcessing": "Обработка: {percent}%",
+  "@lectureProcessing": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "exportDocx": "Скачать DOCX",
+  "exportMd": "Скачать Markdown",
+  "transcript": "Расшифровка",
+  "notes": "Конспект",
+  "noLectures": "Конспектов пока нет",
+  "chatWithLecture": "Спросить по лекции",
+  "savedTo": "Сохранено: {path}",
+  "@savedTo": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "appearance": "Оформление",
+  "voiceSection": "Голос",
+  "autoSpeak": "Читать ответы вслух",
+  "voiceSpeed": "Скорость речи",
+  "pushToTalkMode": "Удерживать кнопку микрофона",
+  "privacy": "Приватность",
+  "historyRetention": "Хранить историю чатов",
+  "daysCount": "{count, plural, one{{count} день} few{{count} дня} many{{count} дней} other{{count} дня}}",
+  "@daysCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "changePassword": "Сменить пароль",
+  "currentPassword": "Текущий пароль",
+  "passwordChanged": "Пароль изменён",
+  "deleteMyData": "Удалить мои чаты, документы и конспекты",
+  "deleteMyDataConfirm": "Все чаты, документы и конспекты будут удалены. Аккаунт останется.",
+  "deleteAccount": "Удалить аккаунт",
+  "deleteAccountConfirm": "Аккаунт и все данные будут удалены без возможности восстановления. Введите пароль.",
+  "logout": "Выйти",
+  "about": "О приложении",
+  "privacyNote": "Мы не собираем телефон, почту и имя. Голос и кадры камеры не сохраняются, история шифруется.",
+  "account": "Аккаунт",
+  "signedInAs": "Вы вошли как {login}",
+  "@signedInAs": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "university": "Вуз",
+  "version": "Версия {version}",
+  "@version": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "ttsUnavailable": "Озвучка недоступна: не найден звуковой проигрыватель. Установите GStreamer (gstreamer1.0-plugins-good) или PipeWire/PulseAudio."
+}

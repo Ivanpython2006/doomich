@@ -33,12 +33,14 @@ import uuid
 from typing import Any
 
 from doomich_common.audio import AudioError, decode_any
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from doomich_api.ai import get_providers
 from doomich_api.ai.conversation import prepare_turn, run_turn
 from doomich_api.ai.text import SentenceSplitter, strip_markdown
-from doomich_api.api.deps import user_from_token
+from doomich_api.api.deps import current_user, limit, user_from_token
 from doomich_api.config import get_settings
 from doomich_api.context import UserContext
 
@@ -228,3 +230,19 @@ async def voice(ws: WebSocket) -> None:
             await session._cancel()
     except (WebSocketDisconnect, TimeoutError):
         return
+
+
+class TtsIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    language: str | None = Field(default=None, pattern="^(ru|en)$")
+
+
+@router.post("/v1/tts")
+async def tts(body: TtsIn, request: Request, user: UserContext = Depends(current_user)) -> Response:
+    """Озвучить готовый текст (кнопка «Озвучить» у ответа). Текст не сохраняется."""
+    limit(request, "tts", 30, 60)
+    clean = strip_markdown(body.text)
+    if not clean:
+        raise HTTPException(400, "Нечего озвучивать")
+    audio, fmt, rate = await get_providers().tts.speak(clean[:2000], language=body.language or user.locale)
+    return Response(audio, media_type=f"audio/{fmt}", headers={"X-Sample-Rate": str(rate)})

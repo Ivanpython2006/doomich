@@ -133,6 +133,10 @@ async def test_apply_import_diff_and_api(client, tenant):
         )
     ).json()
     assert [(e["subject"], e["room"], e["teacher"]) for e in events] == [("История", "202", "Сидоров С.С.")]
+    # время приходит с часовым поясом вуза: 9:00 по Москве, а не по UTC
+    assert events[0]["starts_at"].endswith("09:00:00+03:00")
+    me = (await client.get("/v1/me", headers=user["headers"])).json()
+    assert me["university"]["utc_offset_minutes"] == 180
 
     since = (datetime.now(TZ) - timedelta(hours=1)).isoformat()
     changes = (await client.get("/v1/schedule/changes", params={"since": since}, headers=user["headers"])).json()

@@ -1,0 +1,12 @@
+name: doomich_client_workspace
+description: Клиенты «Думыча» — общий workspace (ядро, UI, приложения для Android и ПК).
+publish_to: none
+
+environment:
+  sdk: ^3.14.0
+
+workspace:
+  - packages/doomich_core
+  - packages/doomich_ui
+  - mobile
+  - desktop

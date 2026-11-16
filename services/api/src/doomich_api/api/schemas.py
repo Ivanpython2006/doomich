@@ -14,6 +14,7 @@ class UniversityOut(BaseModel):
     slug: str
     name: str
     timezone: str
+    utc_offset_minutes: int = 0  # текущее смещение часового пояса вуза от UTC
 
 
 class GroupOut(BaseModel):

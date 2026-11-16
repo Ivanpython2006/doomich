@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from doomich_api.api.deps import current_user, limit, system_session
 from doomich_api.api.schemas import GroupOut, MeOut, OkOut, TokensOut, UniversityOut
 from doomich_api.config import get_settings
-from doomich_api.context import UserContext
+from doomich_api.context import UserContext, utc_offset_minutes
 from doomich_api.db import utcnow
 from doomich_api.models import (
     AppUser,
@@ -136,7 +136,11 @@ async def me_out(session: AsyncSession, user: AppUser) -> MeOut:
         locale=user.locale,
         history_days=user.history_days,
         university=UniversityOut(
-            id=university.id, slug=university.slug, name=university.name, timezone=university.timezone
+            id=university.id,
+            slug=university.slug,
+            name=university.name,
+            timezone=university.timezone,
+            utc_offset_minutes=utc_offset_minutes(university.timezone),
         ),
         group=GroupOut(id=group.id, code=group.code, name=group.name, faculty=group.faculty) if group else None,
         created_on=user.created_on,

@@ -78,3 +78,11 @@ async def test_voice_rejects_bad_token(app):
         return None
 
     assert await asyncio.to_thread(scenario) == 4401
+
+
+async def test_tts_endpoint(client, tenant, providers):
+    user = await register(client, tenant)
+    resp = await client.post("/v1/tts", json={"text": "## Итог\n**Пара** в 9:00 [1]"}, headers=user["headers"])
+    assert resp.status_code == 200 and resp.content[:4] == b"RIFF"
+    empty = await client.post("/v1/tts", json={"text": "[1]"}, headers=user["headers"])
+    assert empty.status_code == 400
