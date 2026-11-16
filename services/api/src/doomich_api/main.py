@@ -22,6 +22,7 @@ from doomich_api.api import (
     me,
     models_api,
     nav,
+    public,
     schedule,
     voice,
 )
@@ -82,7 +83,7 @@ def create_app() -> FastAPI:
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
 
-    for module in (auth, me, chats, voice, schedule, documents, lectures, nav, courses, models_api, admin):
+    for module in (auth, me, chats, voice, schedule, documents, lectures, nav, courses, models_api, admin, public):
         app.include_router(module.router)
 
     @app.get("/healthz", include_in_schema=False)

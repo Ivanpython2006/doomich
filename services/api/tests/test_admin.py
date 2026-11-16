@@ -43,6 +43,13 @@ async def test_admin_full_flow(client, providers, tmp_path):
     group = (
         await client.post(f"/admin/v1/universities/{uni['id']}/groups", json={"code": "ПИ-25-2"}, headers=headers)
     ).json()
+    # повторы — понятный конфликт, а не ошибка сервера
+    again = await client.post(f"/admin/v1/universities/{uni['id']}/groups", json={"code": " пи–25–2 "}, headers=headers)
+    assert again.status_code == 409 and "ПИ-25-2" in again.json()["detail"]
+    dup_campus = await client.post(
+        f"/admin/v1/universities/{uni['id']}/campuses", json={"slug": "main", "name": "Ещё один"}, headers=headers
+    )
+    assert dup_campus.status_code == 409
 
     # коды приглашения: показываются один раз, в БД только хэши
     batch = (
@@ -55,6 +62,7 @@ async def test_admin_full_flow(client, providers, tmp_path):
     assert len(batch["codes"]) == 3 and batch["codes"][0]["app_link"].startswith("doomich://invite/")
     listing = (await client.get(f"/admin/v1/universities/{uni['id']}/invite-batches", headers=headers)).json()
     assert listing[0]["count"] == 3 and listing[0]["activations"] == 0
+    assert listing[0]["group_code"] == "ПИ-25-2"
 
     # импорт расписания: предпросмотр, затем применение
     xlsx = make_xlsx(
@@ -141,6 +149,15 @@ async def test_admin_full_flow(client, providers, tmp_path):
     }
     put = await client.put(f"/admin/v1/campuses/{campus['id']}/graph", json=graph, headers=headers)
     assert put.json() == {"nodes": 5, "edges": 4}
+    # выгрузка в том же формате: можно поправить и загрузить обратно
+    exported = (await client.get(f"/admin/v1/campuses/{campus['id']}/graph", headers=headers)).json()
+    assert [f["level"] for f in exported["buildings"][0]["floors"]] == [1, 3]
+    assert {(e["a"], e["b"]) for e in exported["edges"]} == {(e["a"], e["b"]) for e in graph["edges"]}
+    assert next(e for e in exported["edges"] if e["a"] == "in")["length_m"] == 10.0
+    again = await client.put(f"/admin/v1/campuses/{campus['id']}/graph", json=exported, headers=headers)
+    assert again.json() == {"nodes": 5, "edges": 4}
+    campuses = (await client.get(f"/admin/v1/universities/{uni['id']}/campuses", headers=headers)).json()
+    assert campuses[0]["nodes"] == 5
     route = await client.post("/v1/nav/route", json={"origin": "Главный вход", "destination": "305"}, headers=student)
     assert route.status_code == 200, route.text
     steps = route.json()["steps"]
@@ -153,10 +170,11 @@ async def test_admin_full_flow(client, providers, tmp_path):
 
     status = (await client.get("/admin/v1/status", headers=headers)).json()
     assert status["checks"]["database"] == "ok" and status["checks"]["llm"] == "fake"
-    audit = (await client.get("/admin/v1/audit", headers=headers)).json()
+    audit = (await client.get("/admin/v1/audit", params={"limit": 50}, headers=headers)).json()
     assert {"university.create", "invites.create", "schedule.import", "campus.graph.replace"} <= {
         a["action"] for a in audit
     }
+    assert all(a["admin_login"].startswith("root-") for a in audit if a["action"] == "university.create")
 
 
 async def test_model_registry_activation_and_wakeword_download(client, tenant, providers, tmp_path):
@@ -191,3 +209,65 @@ async def test_non_admin_cannot_use_admin_api(client, tenant):
     user = await register(client, tenant)
     resp = await client.get("/admin/v1/universities", headers=user["headers"])
     assert resp.status_code == 401
+
+
+async def _login(client, login: str, password: str, uri: str) -> dict[str, str]:
+    totp = pyotp.TOTP(pyotp.parse_uri(uri).secret).now()
+    resp = await client.post("/admin/v1/auth/login", json={"login": login, "password": password, "totp": totp})
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def test_admin_accounts_scoping_and_disable(client):
+    root = await _admin_headers(client)
+    me = (await client.get("/admin/v1/me", headers=root)).json()
+    assert me["role"] == "superadmin" and me["login"].startswith("root-")
+    uni = (
+        await client.post(
+            "/admin/v1/universities", json={"slug": f"acc-{uuid.uuid4().hex[:5]}", "name": "Вуз А"}, headers=root
+        )
+    ).json()
+    other = (
+        await client.post(
+            "/admin/v1/universities", json={"slug": f"acc-{uuid.uuid4().hex[:5]}", "name": "Вуз Б"}, headers=root
+        )
+    ).json()
+
+    login, password = f"uni-{uuid.uuid4().hex[:6]}", "пароль-администратора-вуза"
+    no_uni = await client.post("/admin/v1/admins", json={"login": login, "password": password}, headers=root)
+    assert no_uni.status_code == 422
+    created = (
+        await client.post(
+            "/admin/v1/admins", json={"login": login, "password": password, "university_id": uni["id"]}, headers=root
+        )
+    ).json()
+    listed = {a["login"]: a for a in (await client.get("/admin/v1/admins", headers=root)).json()}
+    assert listed[login]["university_id"] == uni["id"] and listed[login]["disabled"] is False
+
+    local = await _login(client, login, password, created["totp_uri"])
+    assert [u["id"] for u in (await client.get("/admin/v1/universities", headers=local)).json()] == [uni["id"]]
+    assert (await client.get(f"/admin/v1/universities/{other['id']}/groups", headers=local)).status_code == 403
+    assert (await client.get("/admin/v1/admins", headers=local)).status_code == 403
+
+    # отключение действует сразу, даже с ещё не истёкшим токеном
+    disabled = await client.patch(f"/admin/v1/admins/{created['id']}", json={"disabled": True}, headers=root)
+    assert disabled.json()["disabled"] is True
+    assert (await client.get("/admin/v1/universities", headers=local)).status_code == 401
+    await client.patch(f"/admin/v1/admins/{created['id']}", json={"disabled": False}, headers=root)
+    assert (await client.get("/admin/v1/universities", headers=local)).status_code == 200
+
+    # новый секрет 2FA: старый код больше не подходит
+    reset = (await client.post(f"/admin/v1/admins/{created['id']}/reset-totp", headers=root)).json()
+    assert reset["totp_uri"] != created["totp_uri"]
+    await _login(client, login, password, reset["totp_uri"])
+    assert (
+        await client.patch(f"/admin/v1/admins/{me['id']}", json={"disabled": True}, headers=root)
+    ).status_code == 400
+
+
+async def test_public_invite_page(client):
+    page = await client.get("/invite/ab2c-de3f")
+    assert page.status_code == 200 and "AB2C-DE3F" in page.text
+    assert page.headers["cache-control"] == "no-store"
+    broken = await client.get("/invite/<script>")
+    assert broken.status_code == 200 and "<script>" not in broken.text and "повреждена" in broken.text

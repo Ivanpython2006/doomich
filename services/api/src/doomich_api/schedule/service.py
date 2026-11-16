@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import logging
+import socket
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from doomich_api.config import get_settings
 from doomich_api.db import utcnow
 from doomich_api.models import (
     ScheduleChange,
@@ -246,12 +251,53 @@ def local_day_bounds(day_from: date, day_to: date, tz: ZoneInfo) -> tuple[dateti
 
 
 # ---------------------------------------------------------------- синхронизация источников
+def validate_source_url(url: str) -> tuple[str, int]:
+    """Проверить вид адреса источника; вернуть хост и порт."""
+    parts = urlsplit(url)
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ImportErrorFatal("Адрес источника должен начинаться с http:// или https://")
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError as exc:
+        raise ImportErrorFatal("Неверный порт в адресе источника") from exc
+    return parts.hostname, port
+
+
+async def check_source_url(url: str) -> None:
+    """Защита от SSRF: источник расписания не должен вести во внутреннюю сеть сервиса.
+
+    Разрешены публичные адреса и явно перечисленные в DOOMICH_SCHEDULE_SOURCE_PRIVATE_HOSTS.
+    Проверяется и каждый адрес перенаправления.
+    """
+    host, port = validate_source_url(url)
+    if host.lower() in {h.lower() for h in get_settings().schedule_source_private_hosts}:
+        return
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise ImportErrorFatal(f"Не удалось найти сервер {host}") from exc
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if not address.is_global:
+            raise ImportErrorFatal(
+                f"Сервер {host} находится во внутренней сети. Если это сервер расписания вуза, "
+                "добавьте его в DOOMICH_SCHEDULE_SOURCE_PRIVATE_HOSTS"
+            )
+
+
+async def _check_request(request: httpx.Request) -> None:
+    await check_source_url(str(request.url))
+
+
 async def fetch_source(source: ScheduleSource, university: University) -> ImportResult:
     cfg = source.config or {}
     tz = tz_of(university)
     keep = keep_teacher_names(university)
-    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
-        resp = await client.request(cfg.get("method", "GET"), cfg["url"], headers=cfg.get("headers") or {})
+    async with httpx.AsyncClient(
+        timeout=60, follow_redirects=True, max_redirects=5, event_hooks={"request": [_check_request]}
+    ) as client:
+        # только GET: источник читается, а не изменяется
+        resp = await client.get(cfg["url"], headers=cfg.get("headers") or {})
         resp.raise_for_status()
     if source.kind == "json":
         return json_to_events(resp.json(), tz, cfg, keep_teacher=keep)

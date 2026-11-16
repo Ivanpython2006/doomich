@@ -199,9 +199,9 @@ async def check_invite(body: InviteCheckIn, request: Request, session: AsyncSess
 async def register(body: RegisterIn, request: Request, session: AsyncSession = Depends(system_session)):
     limit(request, "register", 10, 3600)
     if problem := _login_problem(body.login):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
     if problems := password_problems(body.password):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problems[0])
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problems[0])
     found = await _find_invite(session, body.invite_code)
     if found is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Код приглашения недействителен или уже использован")
@@ -321,7 +321,7 @@ async def logout(body: RefreshIn, session: AsyncSession = Depends(system_session
 async def recover(body: RecoverIn, request: Request, session: AsyncSession = Depends(system_session)):
     limit(request, "recover", 5, 3600)
     if problems := password_problems(body.new_password):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problems[0])
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problems[0])
     user = (
         await session.execute(select(AppUser).where(AppUser.login_norm == normalize_login(body.login)))
     ).scalar_one_or_none()
@@ -351,7 +351,7 @@ async def change_password(
     body: PasswordIn, user: UserContext = Depends(current_user), session: AsyncSession = Depends(system_session)
 ):
     if problems := password_problems(body.new_password):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problems[0])
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problems[0])
     record = await session.get(AppUser, user.user_id)
     if record is None or not verify_secret(record.password_hash, body.old_password):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный текущий пароль")

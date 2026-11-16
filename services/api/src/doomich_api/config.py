@@ -16,6 +16,11 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "prod"] = "dev"
     public_base_url: str = "http://localhost:8000"
+    # страница загрузки приложений — ссылка на публичной странице приглашения
+    downloads_url: str | None = None
+    # серверы расписания во внутренней сети вуза, к которым можно обращаться (JSON-список имён или IP).
+    # Остальные внутренние адреса для источников расписания запрещены (защита от SSRF).
+    schedule_source_private_hosts: list[str] = Field(default_factory=list)
 
     # --- БД и очереди ---
     database_url: str = "postgresql+asyncpg://doomich:doomich@localhost:5432/doomich"

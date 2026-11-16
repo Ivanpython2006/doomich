@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from doomich_api.context import UserContext, load_user_context
 from doomich_api.db import RlsContext, session_scope
+from doomich_api.models import AdminUser
 from doomich_api.security import decode_access_token, decode_admin_token, rate_limiter
 
 bearer = HTTPBearer(auto_error=False)
@@ -62,6 +63,7 @@ class AdminPrincipal:
     id: uuid.UUID
     role: str
     university_id: uuid.UUID | None
+    login: str = ""
 
     @property
     def is_super(self) -> bool:
@@ -83,5 +85,9 @@ async def current_admin(creds: HTTPAuthorizationCredentials | None = Depends(bea
         payload = decode_admin_token(creds.credentials)
     except jwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия администратора истекла") from exc
-    uni = payload.get("uni")
-    return AdminPrincipal(uuid.UUID(payload["sub"]), payload["role"], uuid.UUID(uni) if uni else None)
+    # роль, вуз и блокировку берём из БД: отключение администратора действует сразу, а не после истечения токена
+    async with session_scope(RlsContext.system()) as session:
+        admin = await session.get(AdminUser, uuid.UUID(payload["sub"]))
+    if admin is None or admin.disabled:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Учётная запись администратора отключена")
+    return AdminPrincipal(admin.id, admin.role, admin.university_id, admin.login)

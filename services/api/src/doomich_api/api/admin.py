@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 import httpx
 from doomich_common.registry import ModelKind, ModelRegistry, RegistryError
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, text
@@ -40,7 +40,13 @@ from doomich_api.models import (
 )
 from doomich_api.rag.parsing import ParseError, sniff_mime
 from doomich_api.schedule.importers import ImportErrorFatal, template_xlsx
-from doomich_api.schedule.service import apply_import, normalize_group, parse_file, sync_source
+from doomich_api.schedule.service import (
+    apply_import,
+    normalize_group,
+    parse_file,
+    sync_source,
+    validate_source_url,
+)
 from doomich_api.security import (
     create_admin_token,
     get_crypto,
@@ -116,9 +122,82 @@ async def create_admin(
     body: AdminCreateIn, admin: AdminPrincipal = Depends(current_admin), session: AsyncSession = Depends(system_session)
 ):
     admin.require_super()
-    created, uri = await create_admin_account(session, body.login, body.password, body.role, body.university_id)
+    university_id = body.university_id if body.role == "university_admin" else None
+    if body.role == "university_admin":
+        if university_id is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Для администратора вуза укажите вуз")
+        await _university(session, admin, university_id)
+    created, uri = await create_admin_account(session, body.login, body.password, body.role, university_id)
     await audit(session, admin, "admin.create", body.login, role=body.role)
     return {"id": str(created.id), "totp_uri": uri}
+
+
+def _admin_dict(a: AdminUser) -> dict[str, Any]:
+    return {
+        "id": str(a.id),
+        "login": a.login,
+        "role": a.role,
+        "university_id": str(a.university_id) if a.university_id else None,
+        "disabled": a.disabled,
+        "created_at": a.created_at.isoformat(),
+    }
+
+
+@router.get("/me")
+async def admin_me(admin: AdminPrincipal = Depends(current_admin)):
+    return {
+        "id": str(admin.id),
+        "login": admin.login,
+        "role": admin.role,
+        "university_id": str(admin.university_id) if admin.university_id else None,
+    }
+
+
+@router.get("/admins")
+async def list_admins(admin: AdminPrincipal = Depends(current_admin), session: AsyncSession = Depends(system_session)):
+    admin.require_super()
+    rows = await session.execute(select(AdminUser).order_by(AdminUser.login))
+    return [_admin_dict(a) for a in rows.scalars()]
+
+
+class AdminStateIn(BaseModel):
+    disabled: bool
+
+
+async def _other_admin(session: AsyncSession, admin: AdminPrincipal, admin_id: uuid.UUID) -> AdminUser:
+    admin.require_super()
+    if admin_id == admin.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Это действие нельзя применить к своей учётной записи")
+    target = await session.get(AdminUser, admin_id)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Администратор не найден")
+    return target
+
+
+@router.patch("/admins/{admin_id}")
+async def set_admin_state(
+    admin_id: uuid.UUID,
+    body: AdminStateIn,
+    admin: AdminPrincipal = Depends(current_admin),
+    session: AsyncSession = Depends(system_session),
+):
+    """Отключить или включить администратора. Действует сразу: токены проверяются по БД."""
+    target = await _other_admin(session, admin, admin_id)
+    target.disabled = body.disabled
+    await audit(session, admin, "admin.disable" if body.disabled else "admin.enable", target.login)
+    return _admin_dict(target)
+
+
+@router.post("/admins/{admin_id}/reset-totp")
+async def reset_admin_totp(
+    admin_id: uuid.UUID, admin: AdminPrincipal = Depends(current_admin), session: AsyncSession = Depends(system_session)
+):
+    """Новый секрет 2FA (например, телефон потерян). Ссылка для приложения показывается один раз."""
+    target = await _other_admin(session, admin, admin_id)
+    secret = new_totp_secret()
+    target.totp_secret_enc = get_crypto().seal(secret.encode(), f"totp:{target.id}")
+    await audit(session, admin, "admin.reset_totp", target.login)
+    return {"id": str(target.id), "totp_uri": totp_uri(secret, target.login)}
 
 
 async def create_admin_account(
@@ -209,8 +288,26 @@ async def list_campuses(
     session: AsyncSession = Depends(system_session),
 ):
     await _university(session, admin, university_id)
-    rows = await session.execute(select(Campus).where(Campus.university_id == university_id).order_by(Campus.name))
-    return [{"id": str(c.id), "slug": c.slug, "name": c.name, "address": c.address} for c in rows.scalars()]
+    campuses = (
+        (await session.execute(select(Campus).where(Campus.university_id == university_id).order_by(Campus.name)))
+        .scalars()
+        .all()
+    )
+    nodes = dict(
+        (
+            await session.execute(
+                select(Building.campus_id, func.count(NavNode.id))
+                .join(Floor, Floor.building_id == Building.id)
+                .join(NavNode, NavNode.floor_id == Floor.id)
+                .where(Building.campus_id.in_([c.id for c in campuses]))
+                .group_by(Building.campus_id)
+            )
+        ).all()
+    )
+    return [
+        {"id": str(c.id), "slug": c.slug, "name": c.name, "address": c.address, "nodes": nodes.get(c.id, 0)}
+        for c in campuses
+    ]
 
 
 @router.post("/universities/{university_id}/campuses", status_code=status.HTTP_201_CREATED)
@@ -221,6 +318,11 @@ async def create_campus(
     session: AsyncSession = Depends(system_session),
 ):
     await _university(session, admin, university_id)
+    taken = await session.execute(
+        select(Campus.id).where(Campus.university_id == university_id, Campus.slug == body.slug)
+    )
+    if taken.first():
+        raise HTTPException(status.HTTP_409_CONFLICT, "Кампус с таким кодом уже есть")
     campus = Campus(university_id=university_id, slug=body.slug, name=body.name, address=body.address)
     session.add(campus)
     await session.flush()
@@ -258,10 +360,18 @@ async def create_group(
     session: AsyncSession = Depends(system_session),
 ):
     await _university(session, admin, university_id)
+    code_norm = normalize_group(body.code)
+    if not code_norm:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Укажите код группы")
+    existing = await session.execute(
+        select(StudyGroup.code).where(StudyGroup.university_id == university_id, StudyGroup.code_norm == code_norm)
+    )
+    if (same := existing.scalar_one_or_none()) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Группа уже есть: {same}")
     group = StudyGroup(
         university_id=university_id,
         code=body.code.strip(),
-        code_norm=normalize_group(body.code),
+        code_norm=code_norm,
         name=body.name,
         faculty=body.faculty,
     )
@@ -327,10 +437,11 @@ async def list_invites(
     await _university(session, admin, university_id)
     used = func.coalesce(func.sum(InviteCode.uses), 0)
     rows = await session.execute(
-        select(InviteBatch, used.label("used"))
+        select(InviteBatch, used.label("used"), StudyGroup.code)
         .outerjoin(InviteCode, InviteCode.batch_id == InviteBatch.id)
+        .outerjoin(StudyGroup, StudyGroup.id == InviteBatch.group_id)
         .where(InviteBatch.university_id == university_id)
-        .group_by(InviteBatch.id)
+        .group_by(InviteBatch.id, StudyGroup.code)
         .order_by(InviteBatch.created_at.desc())
     )
     return [
@@ -338,6 +449,7 @@ async def list_invites(
             "id": str(b.id),
             "role": b.role,
             "group_id": str(b.group_id) if b.group_id else None,
+            "group_code": group_code,
             "count": b.count,
             "activations": int(u),
             "max_uses_per_code": b.max_uses_per_code,
@@ -346,7 +458,7 @@ async def list_invites(
             "revoked": b.revoked,
             "created_at": b.created_at.isoformat(),
         }
-        for b, u in rows
+        for b, u, group_code in rows
     ]
 
 
@@ -444,8 +556,14 @@ async def create_source(
     session: AsyncSession = Depends(system_session),
 ):
     await _university(session, admin, university_id)
-    if "url" not in body.config:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "В config нужен url источника")
+    if not isinstance(body.config.get("url"), str):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "В config нужен url источника")
+    try:
+        validate_source_url(body.config["url"])
+    except ImportErrorFatal as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    if body.kind == "ics" and not body.config.get("group"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Для календаря ICS укажите группу в config.group")
     source = ScheduleSource(university_id=university_id, **body.model_dump())
     session.add(source)
     await session.flush()
@@ -608,6 +726,83 @@ class CampusGraphIn(BaseModel):
     edges: list[GraphEdgeIn]
 
 
+async def _campus(session: AsyncSession, admin: AdminPrincipal, campus_id: uuid.UUID) -> Campus:
+    campus = await session.get(Campus, campus_id)
+    if campus is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Кампус не найден")
+    admin.check_university(campus.university_id)
+    return campus
+
+
+@router.get("/campuses/{campus_id}/graph")
+async def get_graph(
+    campus_id: uuid.UUID,
+    admin: AdminPrincipal = Depends(current_admin),
+    session: AsyncSession = Depends(system_session),
+):
+    """Текущий граф кампуса в том же формате, что и загрузка: скачать, поправить, загрузить обратно."""
+    await _campus(session, admin, campus_id)
+    buildings = (
+        (await session.execute(select(Building).where(Building.campus_id == campus_id).order_by(Building.slug)))
+        .scalars()
+        .all()
+    )
+    floors = (
+        (
+            await session.execute(
+                select(Floor).where(Floor.building_id.in_([b.id for b in buildings])).order_by(Floor.level)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    nodes = (
+        (
+            await session.execute(
+                select(NavNode).where(NavNode.floor_id.in_([f.id for f in floors])).order_by(NavNode.key)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    keys = {n.id: n.key for n in nodes}
+    edges = (await session.execute(select(NavEdge).where(NavEdge.from_id.in_(list(keys))))).scalars().all()
+
+    def node_dict(n: NavNode) -> dict[str, Any]:
+        return {"key": n.key, "kind": n.kind, "name": n.name, "room": n.room, "x": n.x, "y": n.y, "tags": n.tags or []}
+
+    return {
+        "buildings": [
+            {
+                "slug": b.slug,
+                "name": b.name,
+                "floors": [
+                    {
+                        "level": f.level,
+                        "name": f.name,
+                        "meters_per_px": f.meters_per_px,
+                        "nodes": [node_dict(n) for n in nodes if n.floor_id == f.id],
+                    }
+                    for f in floors
+                    if f.building_id == b.id
+                ],
+            }
+            for b in buildings
+        ],
+        "edges": [
+            {
+                "a": keys[e.from_id],
+                "b": keys[e.to_id],
+                "length_m": round(e.length_m, 2),
+                "kind": e.kind,
+                "accessible": e.accessible,
+            }
+            for e in edges
+            if e.to_id in keys
+        ],
+    }
+
+
 @router.put("/campuses/{campus_id}/graph")
 async def put_graph(
     campus_id: uuid.UUID,
@@ -616,10 +811,7 @@ async def put_graph(
     session: AsyncSession = Depends(system_session),
 ):
     """Заменить граф кампуса целиком (формат редактора кампуса)."""
-    campus = await session.get(Campus, campus_id)
-    if campus is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Кампус не найден")
-    admin.check_university(campus.university_id)
+    campus = await _campus(session, admin, campus_id)
     await session.execute(delete(Building).where(Building.campus_id == campus_id))
     nodes: dict[str, NavNode] = {}
     for b in body.buildings:
@@ -632,7 +824,7 @@ async def put_graph(
             await session.flush()
             for n in f.nodes:
                 if n.key in nodes:
-                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Повторяется ключ узла {n.key}")
+                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Повторяется ключ узла {n.key}")
                 node = NavNode(floor_id=floor.id, **n.model_dump())
                 session.add(node)
                 nodes[n.key] = node
@@ -642,7 +834,7 @@ async def put_graph(
         a, b = nodes.get(e.a), nodes.get(e.b)
         if a is None or b is None:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Ребро ссылается на неизвестный узел {e.a}–{e.b}"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"Ребро ссылается на неизвестный узел {e.a}–{e.b}"
             )
         length = e.length_m
         if length is None:
@@ -742,19 +934,27 @@ async def system_status(
 
 @router.get("/audit")
 async def audit_log(
-    limit_: int = 100, admin: AdminPrincipal = Depends(current_admin), session: AsyncSession = Depends(system_session)
+    limit_: int = Query(100, alias="limit", ge=1, le=500),
+    admin: AdminPrincipal = Depends(current_admin),
+    session: AsyncSession = Depends(system_session),
 ):
-    stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(min(limit_, 500))
+    stmt = (
+        select(AuditLog, AdminUser.login)
+        .outerjoin(AdminUser, AdminUser.id == AuditLog.admin_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit_)
+    )
     if not admin.is_super:
         stmt = stmt.where(AuditLog.university_id == admin.university_id)
     return [
         {
             "id": a.id,
             "admin_id": str(a.admin_id) if a.admin_id else None,
+            "admin_login": login,
             "action": a.action,
             "target": a.target,
             "details": a.details,
             "created_at": a.created_at.isoformat(),
         }
-        for a in (await session.execute(stmt)).scalars()
+        for a, login in (await session.execute(stmt)).all()
     ]
