@@ -1,0 +1,16 @@
+[project]
+name = "doomich-common"
+version = "0.1.0"
+description = "Общий код Python-сервисов «Думыча»: реестр моделей, работа со звуком"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.9",
+    "numpy>=1.26",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/doomich_common"]

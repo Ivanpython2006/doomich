@@ -1,0 +1,49 @@
+[project]
+name = "doomich-workspace"
+version = "0.1.0"
+description = "Думыч — монорепозиторий Python-части: сервер, сервисы инференса, ML-платформа"
+requires-python = ">=3.12"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/common", "services/api", "services/asr", "services/tts", "services/nav", "ml"]
+
+[tool.uv.sources]
+doomich-common = { workspace = true }
+doomich-api = { workspace = true }
+doomich-asr = { workspace = true }
+doomich-tts = { workspace = true }
+doomich-nav = { workspace = true }
+doomich-ml = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
+ignore = [
+    "S101",   # assert в тестах
+    "S311",   # random не для криптографии там, где это явно
+    "RUF001", "RUF002", "RUF003",  # кириллица в строках и комментариях — это нормально
+    "B008",   # FastAPI Depends в аргументах по умолчанию
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106", "S108"]
+"**/migrations/**" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

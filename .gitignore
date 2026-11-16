@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Данные и артефакты (никогда не коммитим модели и пользовательские данные)
+/data/
+/storage/
+/registry/
+*.onnx
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+!**/tests/fixtures/**
+
+# Секреты
+.env
+*.env.local
+infra/compose/.env
+
+# Node / admin
+node_modules/
+apps/admin/dist/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/build/
+**/.idea/
+*.iml
+**/ios/Flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+**/android/.gradle/
+**/android/local.properties
+**/android/app/upload-keystore.jks
+**/android/key.properties
+
+# ОС
+.DS_Store
+Thumbs.db
