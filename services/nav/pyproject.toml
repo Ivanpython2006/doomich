@@ -1,8 +1,24 @@
 [project]
 name = "doomich-nav"
 version = "0.1.0"
+description = "Сервис навигации «Думыча»: определение места по кадрам камеры и описанию (ONNX, без PyTorch)"
 requires-python = ">=3.12"
-dependencies = ["doomich-common", "fastapi>=0.115", "uvicorn[standard]>=0.32", "pydantic-settings>=2.6", "python-multipart>=0.0.17", "numpy>=1.26"]
+dependencies = [
+    "doomich-common",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.17",
+    "numpy>=1.26",
+    "onnxruntime>=1.19",
+    "pillow>=11.0",
+]
+
+[project.scripts]
+doomich-nav = "doomich_nav.main:run"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "onnx>=1.17", "httpx>=0.28"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

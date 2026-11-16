@@ -1,8 +1,28 @@
 [project]
 name = "doomich-asr"
 version = "0.1.0"
+description = "Сервис распознавания речи «Думыча»: GigaAM (sherpa-onnx), Whisper (faster-whisper), OpenAI-совместимые серверы"
 requires-python = ">=3.12"
-dependencies = ["doomich-common", "fastapi>=0.115", "uvicorn[standard]>=0.32", "pydantic-settings>=2.6", "python-multipart>=0.0.17", "numpy>=1.26"]
+dependencies = [
+    "doomich-common",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.17",
+    "numpy>=1.26",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+gigaam = ["sherpa-onnx>=1.10"]
+whisper = ["faster-whisper>=1.1"]
+hf = ["transformers>=4.46", "torch>=2.4"]
+
+[project.scripts]
+doomich-asr = "doomich_asr.main:run"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
 
 [build-system]
 requires = ["hatchling>=1.25"]
