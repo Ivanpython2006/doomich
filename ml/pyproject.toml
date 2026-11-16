@@ -1,8 +1,34 @@
 [project]
 name = "doomich-ml"
 version = "0.1.0"
+description = "ML-платформа «Думыча»: обучение моделей под вузы и кампусы, оценка, экспорт, реестр версий"
 requires-python = ">=3.12"
-dependencies = ["doomich-common", "numpy>=1.26", "typer>=0.13"]
+dependencies = [
+    "doomich-common",
+    "numpy>=1.26",
+    "typer>=0.13",
+    "pydantic>=2.9",
+    "httpx>=0.28",
+    "torch>=2.5",
+    "transformers>=4.46",
+    "peft>=0.13",
+    "accelerate>=1.0",
+    "safetensors>=0.4",
+    "tokenizers>=0.20",
+    "onnx>=1.17",
+    "onnxruntime>=1.19",
+    "pillow>=11.0",
+]
+
+[project.optional-dependencies]
+# конвертация дообученного Whisper в CTranslate2 для faster-whisper
+whisper = ["ctranslate2>=4.5"]
+
+[project.scripts]
+doomich-ml = "doomich_ml.cli:app"
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

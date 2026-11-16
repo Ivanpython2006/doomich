@@ -1,0 +1,50 @@
+# Модели «Думыча» для одного вуза. Запуск: doomich-ml build ml/configs/example.toml --registry /srv/doomich/registry
+# Каждая секция необязательна: включайте только то, для чего уже собраны данные.
+
+tenant = "demo"   # slug вуза — тот же, что в админ-панели
+
+# Пороги качества: версия активируется, только если метрики их проходят (иначе — регистрация без активации).
+[gates.vpr]
+recall_at_1 = [">=", 0.85]
+
+[gates.wakeword]
+frr = ["<=", 0.05]
+false_alarms_per_hour = ["<=", 0.5]
+
+# Слово активации общее для всех вузов: обычно собирается один раз с tenant = "_global".
+[wakeword]
+tenant = "_global"
+data_dir = "data/wakeword"          # pos/, neg/, recordings/ — WAV 16 кГц; см. doomich-ml wakeword synth
+noise_dir = "data/noise"            # фоновые шумы аудиторий и коридоров
+epochs = 25
+
+# Навигация: по секции на каждый кампус (ключ — slug кампуса).
+[vpr.main]
+campus_dir = "data/demo/campus-main"   # photos/<ключ узла>/*.jpg + nodes.json
+base_model = "facebook/dinov2-small"    # или локальный путь к модели
+input_size = 224
+epochs = 12
+# caption_url = "http://vllm:8000/v1"   # VLM дополнит описания узлов и надписи
+# caption_model = "doomich-llm"
+
+# LoRA-адаптер под вуз: формат ответов и лексика вуза (факты — через RAG).
+[llm_lora]
+base_model = "Qwen/Qwen3.5-9B"          # та же базовая модель, что обслуживает vLLM
+data_file = "data/demo/chat.jsonl"      # doomich-ml llm prepare --faq ... --docs ...
+epochs = 2
+rank = 16
+
+# Дообучение распознавания речи на лекциях вуза (с согласия преподавателей).
+[asr]
+backend = "ctc"
+base_model = "data/models/gigaam-ctc-hf"
+train_manifest = "data/demo/asr/train.jsonl"
+val_manifest = "data/demo/asr/val.jsonl"
+epochs = 5
+
+# Эмбеддинги под документы вуза (после смены модели переиндексируйте документы вуза).
+[embeddings]
+base_model = "Qwen/Qwen3-Embedding-0.6B"
+pairs_file = "data/demo/pairs.jsonl"
+pooling = "last"
+epochs = 2
