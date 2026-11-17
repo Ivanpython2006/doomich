@@ -35,7 +35,7 @@ services:
       - --model=${LLM_MODEL_ID:?укажите LLM_MODEL_ID в .env}
       - --served-model-name=doomich-llm
       - --max-model-len=${LLM_MAX_MODEL_LEN:-32768}
-      - --gpu-memory-utilization=${LLM_GPU_MEMORY:-0.88}
+      - --gpu-memory-utilization=${LLM_GPU_MEMORY:-0.6}
       - --enable-auto-tool-choice
       - --tool-call-parser=${LLM_TOOL_PARSER:-hermes}
       - --enable-lora
@@ -62,6 +62,9 @@ services:
       - --runner=pooling
       - --max-model-len=8192
       - --gpu-memory-utilization=${EMBEDDINGS_GPU_MEMORY:-0.08}
+    # экземпляры vLLM на одной карте стартуют по очереди: каждый при запуске замеряет свободную память
+    depends_on:
+      vllm-llm: { condition: service_healthy }
     deploy:
       resources:
         reservations:
@@ -80,6 +83,8 @@ services:
       - --gpu-memory-utilization=${RERANKER_GPU_MEMORY:-0.08}
       # Qwen3-Reranker — генеративная модель: vLLM превращает её в классификатор «да/нет»
       - '--hf-overrides={"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
+    depends_on:
+      vllm-embed: { condition: service_healthy }
     deploy:
       resources:
         reservations:

@@ -1,0 +1,40 @@
+- name: Код «Думыча»
+  ansible.builtin.git:
+    repo: "{{ doomich_repo }}"
+    dest: "{{ doomich_dir }}"
+    version: "{{ doomich_version }}"
+    force: false
+
+- name: Настройки compose (секреты из vault)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ doomich_dir }}/infra/compose/.env"
+    mode: "0600"
+
+- name: Кому открыта панель администратора
+  ansible.builtin.copy:
+    dest: "{{ doomich_dir }}/infra/compose/admin-allow.conf"
+    content: |
+      {% for net in doomich_admin_networks %}
+      allow {{ net }};
+      {% endfor %}
+      deny all;
+    mode: "0644"
+
+- name: Каталог сертификатов (fullchain.pem и privkey.pem положите сюда до запуска)
+  ansible.builtin.file:
+    path: "{{ doomich_dir }}/infra/compose/certs"
+    state: directory
+    mode: "0750"
+
+- name: Сборка образов и запуск
+  ansible.builtin.command:
+    cmd: >-
+      docker compose -f infra/compose/compose.yaml
+      {{ '-f infra/compose/compose.gpu.yaml' if doomich_gpu | bool else '' }}
+      {{ '-f infra/compose/compose.monitoring.yaml' if doomich_monitoring | bool else '' }}
+      {{ '--profile gpu' if (doomich_gpu | bool and doomich_monitoring | bool) else '' }}
+      up -d --build --remove-orphans
+    chdir: "{{ doomich_dir }}"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stderr or 'Recreated' in compose_up.stderr"

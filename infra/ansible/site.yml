@@ -1,0 +1,22 @@
+# Подготовка серверов и развёртывание «Думыча».
+#   cp inventory.example.ini inventory.ini && ansible-vault create group_vars/all/vault.yml
+#   ansible-playbook -i inventory.ini site.yml --ask-vault-pass
+- name: Базовая подготовка серверов
+  hosts: doomich
+  become: true
+  roles:
+    - common
+
+- name: Драйвер NVIDIA и доступ к GPU из контейнеров
+  hosts: gpu
+  become: true
+  roles:
+    - role: nvidia
+      when: doomich_gpu | bool
+
+- name: Развёртывание «Думыча»
+  hosts: app
+  become: true
+  roles:
+    - doomich
+    - backup

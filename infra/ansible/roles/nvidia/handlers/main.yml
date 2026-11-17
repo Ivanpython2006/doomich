@@ -1,0 +1,8 @@
+- name: Перезагрузить сервер
+  ansible.builtin.reboot:
+    reboot_timeout: 900
+
+- name: Перезапустить Docker
+  ansible.builtin.service:
+    name: docker
+    state: restarted

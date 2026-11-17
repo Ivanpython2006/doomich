@@ -1,0 +1,14 @@
+- name: Каталог резервных копий
+  ansible.builtin.file:
+    path: "{{ doomich_backup_dir }}"
+    state: directory
+    mode: "0700"
+
+- name: Ежедневная резервная копия в 03:30
+  ansible.builtin.cron:
+    name: doomich-backup
+    minute: "30"
+    hour: "3"
+    job: >-
+      cd {{ doomich_dir }} && BACKUP_DIR={{ doomich_backup_dir }} KEEP_DAYS={{ doomich_backup_keep_days }}
+      infra/scripts/backup.sh >> /var/log/doomich-backup.log 2>&1

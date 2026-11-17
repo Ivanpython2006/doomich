@@ -1,0 +1,249 @@
+# Проверки «Думыча»: сервер и ML (Python), панель администратора, клиенты Flutter,
+# сборки под Android, Linux и Windows, образы Docker и сквозной тест стенда.
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.50.0
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  python-lint:
+    name: Python — стиль
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uvx ruff check .
+      - run: uvx ruff format --check .
+
+  api:
+    name: API — тесты (PostgreSQL + pgvector)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg17-bookworm
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: ffmpeg для голосовых тестов
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: uv sync --frozen --package doomich-api
+      - name: pytest
+        working-directory: services/api
+        env:
+          DOOMICH_TEST_PG: postgresql://postgres:postgres@localhost:5432
+        run: uv run --frozen --package doomich-api pytest -q
+
+  services:
+    name: Сервисы речи и навигации — тесты
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: ASR
+        working-directory: services/asr
+        run: uv run --frozen --package doomich-asr pytest -q
+      - name: TTS
+        working-directory: services/tts
+        run: uv run --frozen --package doomich-tts pytest -q
+      - name: Навигация
+        working-directory: services/nav
+        run: uv run --frozen --package doomich-nav pytest -q
+
+  ml:
+    name: ML-платформа — тесты
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Место на диске под PyTorch
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: pytest
+        working-directory: ml
+        run: uv run --frozen --package doomich-ml pytest -q
+
+  admin:
+    name: Панель администратора
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/admin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  flutter:
+    name: Клиенты Flutter — анализ и тесты
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/client
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: dart test
+        working-directory: apps/client/packages/doomich_core
+      - run: flutter test
+        working-directory: apps/client/packages/doomich_ui
+      - run: flutter test
+        working-directory: apps/client/mobile
+      - run: flutter test
+        working-directory: apps/client/desktop
+
+  android:
+    name: Сборка Android (APK)
+    needs: flutter
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: flutter build apk
+        working-directory: apps/client/mobile
+        # без android/key.properties релиз подписывается отладочным ключом (для проверки сборки)
+        run: flutter build apk --release --dart-define=DOOMICH_API=${{ vars.DOOMICH_API_URL || 'https://doomich.example.ru' }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: doomich-android-apk
+          path: apps/client/mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
+
+  linux-desktop:
+    name: Сборка Linux
+    needs: flutter
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Библиотеки для сборки
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev libsecret-1-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: flutter build linux
+        working-directory: apps/client/desktop
+        run: flutter build linux --release --dart-define=DOOMICH_API=${{ vars.DOOMICH_API_URL || 'https://doomich.example.ru' }}
+      - name: Архив
+        run: tar -C apps/client/desktop/build/linux/x64/release -czf doomich-linux-x64.tar.gz bundle
+      - uses: actions/upload-artifact@v7
+        with:
+          name: doomich-linux-x64
+          path: doomich-linux-x64.tar.gz
+          retention-days: 14
+
+  windows-desktop:
+    name: Сборка Windows
+    needs: flutter
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: flutter build windows
+        working-directory: apps/client/desktop
+        run: flutter build windows --release --dart-define=DOOMICH_API=${{ vars.DOOMICH_API_URL || 'https://doomich.example.ru' }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: doomich-windows-x64
+          path: apps/client/desktop/build/windows/x64/runner/Release
+          retention-days: 14
+
+  stack:
+    name: Образы Docker и сквозной тест стенда
+    needs: [api, admin]
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE_DEV: docker compose --env-file infra/compose/dev.env -f infra/compose/compose.yaml -f infra/compose/compose.dev.yaml
+    steps:
+      - uses: actions/checkout@v7
+      - name: Проверка compose-файлов (разработка и боевой режим)
+        run: |
+          $COMPOSE_DEV config --quiet
+          { grep -vE '^(POSTGRES_PASSWORD|DOOMICH_DB_PASSWORD|DOOMICH_JWT_SECRET|DOOMICH_MASTER_KEY|DOOMICH_INVITE_PEPPER|GRAFANA_ADMIN_PASSWORD)=' infra/compose/.env.example; sh infra/scripts/gen-secrets.sh; } > /tmp/prod.env
+          docker compose --env-file /tmp/prod.env -f infra/compose/compose.yaml -f infra/compose/compose.gpu.yaml \
+            -f infra/compose/compose.monitoring.yaml --profile gpu --profile ml config --quiet
+      - name: Сборка и запуск стенда
+        run: |
+          $COMPOSE_DEV up -d --build
+          # migrate завершается сам, поэтому ждём не все контейнеры, а nginx → API
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8080/healthz && exit 0; sleep 5; done
+          $COMPOSE_DEV ps -a; exit 1
+      - name: Проверки через nginx
+        run: |
+          curl -fsS http://127.0.0.1:8080/healthz
+          curl -fsS http://127.0.0.1:8080/admin/ | grep -q "Думыч — администрирование"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/metrics)" = 404
+      # пакеты клиента — в общем рабочем пространстве pub с Flutter-пакетами, поэтому нужен Flutter, а не только Dart
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Сквозной тест клиента (регистрация, чат, документы, голос)
+        run: |
+          $COMPOSE_DEV exec -T api doomich-api seed-demo
+          INVITE=$($COMPOSE_DEV exec -T api doomich-api create-invites --university demo --count 1 --group ДМ-26-1 | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}' | head -1)
+          (cd apps/client && flutter pub get)
+          cd apps/client/packages/doomich_core
+          DOOMICH_E2E_API=http://127.0.0.1:8080 DOOMICH_E2E_INVITE=$INVITE dart test --run-skipped -t e2e test/e2e_test.dart
+      - name: Журналы при ошибке
+        if: failure()
+        run: $COMPOSE_DEV logs --tail=200

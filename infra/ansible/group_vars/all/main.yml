@@ -1,0 +1,28 @@
+# Общие параметры развёртывания. Секреты — в vault.yml (ansible-vault create group_vars/all/vault.yml):
+#   vault_postgres_password, vault_db_password, vault_jwt_secret, vault_master_key,
+#   vault_invite_pepper, vault_grafana_password, vault_hf_token (если нужен)
+doomich_dir: /opt/doomich
+doomich_repo: https://github.com/ivanpython2006/doomich.git
+doomich_version: main
+
+doomich_public_base_url: https://doomich.example.ru
+doomich_server_name: doomich.example.ru
+# подсеть VPN, из которой открыта панель администратора
+doomich_admin_networks:
+  - 10.8.0.0/24
+
+doomich_gpu: true
+doomich_monitoring: true
+doomich_llm_model_id: Qwen/Qwen3.5-9B
+doomich_llm_gpu: 0
+doomich_speech_gpu: 0
+# доля памяти карты под LLM: 0.6, если на той же карте речь и эмбеддинги; 0.88 — если карта отдельная
+doomich_llm_gpu_memory: 0.6
+
+# ежедневная резервная копия: каталог на этом сервере (отправку в другой ЦОД настройте отдельно)
+doomich_backup_dir: /var/backups/doomich
+doomich_backup_keep_days: 14
+
+# порты, открытые в межсетевом экране (SSH — только из сети администраторов)
+doomich_ssh_networks:
+  - 10.0.0.0/8
