@@ -28,7 +28,8 @@ whisper = ["ctranslate2>=4.5"]
 doomich-ml = "doomich_ml.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8.3"]
+# сквозные тесты проверяют, что обученные модели читают сервисы ASR и навигации
+dev = ["pytest>=8.3", "doomich-asr", "doomich-nav"]
 
 [build-system]
 requires = ["hatchling>=1.25"]

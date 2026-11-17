@@ -1209,6 +1209,8 @@ whisper = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "doomich-asr" },
+    { name = "doomich-nav" },
     { name = "pytest" },
 ]
 
@@ -1233,7 +1235,11 @@ requires-dist = [
 provides-extras = ["whisper"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.3" }]
+dev = [
+    { name = "doomich-asr", editable = "services/asr" },
+    { name = "doomich-nav", editable = "services/nav" },
+    { name = "pytest", specifier = ">=8.3" },
+]
 
 [[package]]
 name = "doomich-nav"

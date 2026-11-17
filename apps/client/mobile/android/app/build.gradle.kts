@@ -1,7 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Ключ подписи релиза — в android/key.properties (не хранится в репозитории, см. docs/dev/clients.md).
+// Без него релиз подписывается отладочным ключом. Полное имя java.util.Properties внутри скрипта писать
+// нельзя: «java» здесь — расширение Gradle, поэтому класс импортирован.
+val keyProps = Properties().apply {
+    val file = rootProject.file("key.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
@@ -28,11 +38,6 @@ android {
         versionName = flutter.versionName
     }
 
-    // Ключ подписи релиза — в android/key.properties (не хранится в репозитории, см. docs/dev/clients.md)
-    val keyProps = java.util.Properties().apply {
-        val file = rootProject.file("key.properties")
-        if (file.exists()) file.inputStream().use { load(it) }
-    }
     signingConfigs {
         if (keyProps.isNotEmpty()) {
             create("release") {
