@@ -19,6 +19,9 @@ cd desktop && flutter build linux --release --dart-define=DOOMICH_API=https://do
 cd desktop && flutter build windows --release --dart-define=DOOMICH_API=https://doomich.example.ru   # на Windows
 ```
 
+Для Android нужны Android SDK и **JDK 21**: Android Gradle Plugin 9.3 на JDK 17 падает на проверке lint
+(`NoSuchMethodError: List.removeLast`). NDK нужной версии Gradle скачает сам.
+
 `DOOMICH_API` — адрес сервера по умолчанию; пользователь может сменить его в приложении («Адрес сервера»
 на экране приветствия или в настройках), поэтому одна сборка подходит для нескольких установок.
 
