@@ -47,3 +47,13 @@ apps/admin/dist/
 # ОС
 .DS_Store
 Thumbs.db
+
+# боевые настройки и данные развёртывания
+infra/compose/.env
+infra/compose/app.env
+infra/compose/speech.env
+infra/compose/certs/
+infra/compose/datasets/
+infra/compose/runs/
+infra/ansible/inventory.ini
+infra/ansible/group_vars/all/vault.yml

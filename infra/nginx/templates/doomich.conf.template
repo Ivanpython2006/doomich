@@ -1,0 +1,8 @@
+# Разработка: только HTTP.
+include /etc/nginx/doomich/upstream.conf;
+
+server {
+    listen 80 default_server;
+    server_name ${DOOMICH_SERVER_NAME};
+    include /etc/nginx/doomich/locations.conf;
+}

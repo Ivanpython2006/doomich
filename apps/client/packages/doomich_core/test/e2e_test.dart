@@ -48,7 +48,12 @@ void main() {
 
     // документ → вопрос по нему со ссылкой на источник
     final docs = DocumentsRepository(client);
-    final doc = await docs.upload('конспект.md', utf8.encode('# Интегралы\nИнтеграл — это площадь под графиком функции.'));
+    var doc = await docs.upload('конспект.md', utf8.encode('# Интегралы\nИнтеграл — это площадь под графиком функции.'));
+    // с воркерами Celery документ разбирается в фоне, без них (dev) — сразу
+    for (var i = 0; i < 60 && doc.status != 'ready' && doc.status != 'error'; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      doc = await docs.get(doc.id);
+    }
     expect(doc.status, 'ready');
     final docChat = await chats.create(documentIds: [doc.id]);
     final answer = await chats.send(docChat.id, 'Что такое интеграл по документу?').toList();

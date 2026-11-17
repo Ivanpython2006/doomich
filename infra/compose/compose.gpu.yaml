@@ -1,0 +1,148 @@
+# GPU-узел: языковая модель, эмбеддинги и реранкер в vLLM, распознавание речи на CUDA, обучение моделей.
+# Нужны драйвер NVIDIA и nvidia-container-toolkit (роль ansible «nvidia»).
+#
+#   docker compose -f infra/compose/compose.yaml -f infra/compose/compose.gpu.yaml up -d
+#   docker compose -f infra/compose/compose.yaml -f infra/compose/compose.gpu.yaml run --rm ml doomich-ml --help
+#
+# Распределение по видеокартам (LLM_GPU, SPEECH_GPU) и выбор моделей — в .env, обоснование — docs/06-server-requirements.md.
+
+x-vllm: &vllm
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.33.0}
+  restart: unless-stopped
+  ipc: host
+  environment:
+    HF_HOME: /models/hf
+    HF_TOKEN: ${HF_TOKEN:-}
+  volumes:
+    - models:/models
+  networks: [backend]
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 10
+    start_period: 600s
+
+services:
+  vllm-llm:
+    <<: *vllm
+    environment:
+      HF_HOME: /models/hf
+      HF_TOKEN: ${HF_TOKEN:-}
+      # подключение LoRA-адаптеров вузов на лету (POST /v1/load_lora_adapter из API)
+      VLLM_ALLOW_RUNTIME_LORA_UPDATING: "True"
+    command:
+      - --model=${LLM_MODEL_ID:?укажите LLM_MODEL_ID в .env}
+      - --served-model-name=doomich-llm
+      - --max-model-len=${LLM_MAX_MODEL_LEN:-32768}
+      - --gpu-memory-utilization=${LLM_GPU_MEMORY:-0.88}
+      - --enable-auto-tool-choice
+      - --tool-call-parser=${LLM_TOOL_PARSER:-hermes}
+      - --enable-lora
+      - --max-loras=${LLM_MAX_LORAS:-4}
+      - --max-lora-rank=${LLM_MAX_LORA_RANK:-64}
+      - --enable-prefix-caching
+    volumes:
+      - models:/models
+      # адаптеры из реестра моделей: API передаёт путь /registry/<вуз>/llm_lora/...
+      - registry:/registry:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${LLM_GPU:-0}"]
+              capabilities: [gpu]
+
+  vllm-embed:
+    <<: *vllm
+    command:
+      - --model=${EMBEDDINGS_MODEL_ID:-Qwen/Qwen3-Embedding-0.6B}
+      - --served-model-name=doomich-embed
+      - --runner=pooling
+      - --max-model-len=8192
+      - --gpu-memory-utilization=${EMBEDDINGS_GPU_MEMORY:-0.08}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SPEECH_GPU:-0}"]
+              capabilities: [gpu]
+
+  vllm-rerank:
+    <<: *vllm
+    command:
+      - --model=${RERANKER_MODEL_ID:-Qwen/Qwen3-Reranker-0.6B}
+      - --served-model-name=doomich-rerank
+      - --runner=pooling
+      - --max-model-len=8192
+      - --gpu-memory-utilization=${RERANKER_GPU_MEMORY:-0.08}
+      # Qwen3-Reranker — генеративная модель: vLLM превращает её в классификатор «да/нет»
+      - '--hf-overrides={"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SPEECH_GPU:-0}"]
+              capabilities: [gpu]
+
+  api:
+    depends_on:
+      vllm-llm: { condition: service_healthy }
+
+  asr:
+    build:
+      args:
+        BASE_IMAGE: ${CUDA_BASE_IMAGE:-nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SPEECH_GPU:-0}"]
+              capabilities: [gpu]
+
+  tts:
+    build:
+      args:
+        BASE_IMAGE: ${CUDA_BASE_IMAGE:-nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SPEECH_GPU:-0}"]
+              capabilities: [gpu]
+
+  # обучение моделей под вузы и кампусы (запускается по требованию: docker compose run --rm ml ...)
+  ml:
+    profiles: [ml]
+    image: ${DOOMICH_REGISTRY:-doomich}/ml:${DOOMICH_VERSION:-latest}
+    # тот же общий Dockerfile: колёса PyTorch уже содержат библиотеки CUDA
+    build:
+      context: ../..
+      dockerfile: infra/docker/python.Dockerfile
+      args:
+        PACKAGE: doomich-ml
+        EXTRAS: --extra whisper
+    working_dir: /runs
+    ipc: host
+    environment:
+      HF_HOME: /models/hf
+      HF_TOKEN: ${HF_TOKEN:-}
+      DOOMICH_REGISTRY_DIR: /registry
+    volumes:
+      - registry:/registry
+      - models:/models
+      - ${DOOMICH_DATASETS_DIR:-./datasets}:/datasets
+      - ${DOOMICH_ML_RUNS_DIR:-./runs}:/runs
+    networks: [backend]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

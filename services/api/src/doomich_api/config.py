@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -101,6 +101,26 @@ class Settings(BaseSettings):
         if len(raw) != 32:
             raise ValueError("DOOMICH_MASTER_KEY должен быть 32 байтами в base64")
         return value
+
+    @model_validator(mode="after")
+    def _check_prod_secrets(self) -> Settings:
+        """В боевом режиме не стартуем с секретами из примеров: подделка токенов и расшифровка данных."""
+        if self.env != "prod":
+            return self
+        problems = []
+        jwt_secret = self.jwt_secret.get_secret_value()
+        if "dev-only" in jwt_secret or len(jwt_secret) < 32:
+            problems.append("DOOMICH_JWT_SECRET (нужно не меньше 32 случайных символов)")
+        if b"dev-only" in self.master_key_bytes:
+            problems.append("DOOMICH_MASTER_KEY")
+        if "dev-only" in self.invite_pepper.get_secret_value():
+            problems.append("DOOMICH_INVITE_PEPPER")
+        if problems:
+            raise ValueError(
+                "В DOOMICH_ENV=prod заданы небезопасные секреты: " + ", ".join(problems) + ". "
+                "Сгенерируйте их: infra/scripts/gen-secrets.sh"
+            )
+        return self
 
     @property
     def master_key_bytes(self) -> bytes:

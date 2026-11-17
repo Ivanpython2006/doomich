@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from alembic import context
+from sqlalchemy import create_engine, pool
+
 from doomich_api import models  # noqa: F401 — регистрирует таблицы
 from doomich_api.config import get_settings
 from doomich_api.db import Base
-from sqlalchemy import create_engine, pool
 
 target_metadata = Base.metadata
 

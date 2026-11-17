@@ -1,0 +1,233 @@
+# «Думыч»: прикладной узел. Модели (vLLM) — в compose.gpu.yaml, мониторинг — в compose.monitoring.yaml.
+#
+# Боевой запуск (из корня репозитория, после настройки infra/compose/.env — см. .env.example):
+#   docker compose -f infra/compose/compose.yaml -f infra/compose/compose.gpu.yaml up -d
+# Разработка без GPU — см. compose.dev.yaml.
+
+name: doomich
+
+x-app-image: &app-image
+  image: ${DOOMICH_REGISTRY:-doomich}/api:${DOOMICH_VERSION:-latest}
+  build:
+    context: ../..
+    dockerfile: infra/docker/python.Dockerfile
+    args:
+      PACKAGE: doomich-api
+
+# настройки API и воркеров: секреты — из .env (только подстановка), остальное — из app.env
+x-app: &app
+  <<: *app-image
+  restart: unless-stopped
+  env_file:
+    - path: app.env
+      required: false
+  environment: &app-env
+    DOOMICH_ENV: ${DOOMICH_ENV:-prod}
+    DOOMICH_PUBLIC_BASE_URL: ${DOOMICH_PUBLIC_BASE_URL:?укажите DOOMICH_PUBLIC_BASE_URL в infra/compose/.env}
+    DOOMICH_DATABASE_URL: postgresql+asyncpg://doomich:${DOOMICH_DB_PASSWORD:?нет DOOMICH_DB_PASSWORD (infra/scripts/gen-secrets.sh)}@postgres:5432/doomich
+    DOOMICH_REDIS_URL: redis://valkey:6379/0
+    DOOMICH_JWT_SECRET: ${DOOMICH_JWT_SECRET:?нет DOOMICH_JWT_SECRET}
+    DOOMICH_MASTER_KEY: ${DOOMICH_MASTER_KEY:?нет DOOMICH_MASTER_KEY}
+    DOOMICH_INVITE_PEPPER: ${DOOMICH_INVITE_PEPPER:?нет DOOMICH_INVITE_PEPPER}
+    DOOMICH_STORAGE_DIR: /data/storage
+    DOOMICH_REGISTRY_DIR: /registry
+    DOOMICH_VLLM_REGISTRY_DIR: /registry
+    DOOMICH_LLM_BASE_URL: ${DOOMICH_LLM_BASE_URL:-http://vllm-llm:8000/v1}
+    DOOMICH_EMBEDDINGS_BASE_URL: ${DOOMICH_EMBEDDINGS_BASE_URL:-http://vllm-embed:8000/v1}
+    DOOMICH_RERANKER_BASE_URL: ${DOOMICH_RERANKER_BASE_URL:-http://vllm-rerank:8000}
+    DOOMICH_ASR_BASE_URL: http://asr:8010
+    DOOMICH_TTS_BASE_URL: http://tts:8020
+    DOOMICH_NAV_BASE_URL: http://nav:8030
+  volumes:
+    - storage:/data/storage
+    - registry:/registry
+  networks: [backend]
+  depends_on:
+    postgres: { condition: service_healthy }
+    valkey: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:0.8.7-pg17-bookworm}
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нет POSTGRES_PASSWORD (infra/scripts/gen-secrets.sh)}
+      DOOMICH_DB_PASSWORD: ${DOOMICH_DB_PASSWORD:?нет DOOMICH_DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../postgres/init-doomich.sh:/docker-entrypoint-initdb.d/10-doomich.sh:ro
+    shm_size: 256mb
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d doomich"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  valkey:
+    image: ${VALKEY_IMAGE:-valkey/valkey:9.0-alpine}
+    restart: unless-stopped
+    # очередь задач: при перезапуске задачи не теряются
+    command: ["valkey-server", "--appendonly", "yes", "--save", "60", "1000"]
+    volumes:
+      - valkey:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # миграции схемы БД перед запуском API и воркеров
+  migrate:
+    <<: *app-image
+    command: ["doomich-api", "migrate"]
+    restart: "no"
+    env_file:
+      - path: app.env
+        required: false
+    environment: *app-env
+    networks: [backend]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    command:
+      - uvicorn
+      - doomich_api.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --workers=${DOOMICH_API_WORKERS:-2}
+      # без журнала доступа uvicorn: в нём были бы IP-адреса (свой журнал API их не пишет)
+      - --no-access-log
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # фоновые задачи: разбор документов, синхронизация расписаний
+  worker:
+    <<: *app
+    command: ["celery", "-A", "doomich_api.tasks:celery_app", "worker", "-Q", "default", "-c", "${DOOMICH_WORKER_CONCURRENCY:-4}", "--without-gossip", "--without-mingle", "-l", "INFO"]
+
+  # тяжёлые задачи: конспекты лекций (часы аудио) — отдельная очередь, чтобы не задерживать документы
+  worker-heavy:
+    <<: *app
+    command: ["celery", "-A", "doomich_api.tasks:celery_app", "worker", "-Q", "heavy", "-c", "1", "--without-gossip", "--without-mingle", "-l", "INFO"]
+
+  beat:
+    <<: *app
+    command: ["celery", "-A", "doomich_api.tasks:celery_app", "beat", "-l", "INFO", "-s", "/tmp/celerybeat-schedule"]
+
+  asr:
+    image: ${DOOMICH_REGISTRY:-doomich}/asr:${DOOMICH_VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/python.Dockerfile
+      args:
+        PACKAGE: doomich-asr
+        EXTRAS: --extra gigaam --extra whisper
+    command: ["doomich-asr"]
+    restart: unless-stopped
+    env_file:
+      - path: speech.env
+        required: false
+    environment:
+      DOOMICH_ASR_REGISTRY_DIR: /registry
+      HF_HOME: /models/hf
+    volumes:
+      - registry:/registry:ro
+      - models:/models
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 120s
+
+  tts:
+    image: ${DOOMICH_REGISTRY:-doomich}/tts:${DOOMICH_VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/python.Dockerfile
+      args:
+        PACKAGE: doomich-tts
+        EXTRAS: --extra sherpa
+    command: ["doomich-tts"]
+    restart: unless-stopped
+    env_file:
+      - path: speech.env
+        required: false
+    volumes:
+      - models:/models:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
+  nav:
+    image: ${DOOMICH_REGISTRY:-doomich}/nav:${DOOMICH_VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/python.Dockerfile
+      args:
+        PACKAGE: doomich-nav
+        APT_PACKAGES: ""
+    command: ["doomich-nav"]
+    restart: unless-stopped
+    environment:
+      DOOMICH_NAV_REGISTRY_DIR: /registry
+    volumes:
+      - registry:/registry:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  nginx:
+    image: ${DOOMICH_REGISTRY:-doomich}/nginx:${DOOMICH_VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: infra/docker/nginx.Dockerfile
+    restart: unless-stopped
+    environment:
+      DOOMICH_SERVER_NAME: ${DOOMICH_SERVER_NAME:-_}
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates-prod
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ${DOOMICH_TLS_DIR:-./certs}:/etc/nginx/certs:ro
+      - acme:/var/www/acme
+      # подсеть VPN для панели администратора — свой файл вместо стандартного
+      - ${DOOMICH_ADMIN_ALLOW_FILE:-../nginx/doomich/admin-allow.conf}:/etc/nginx/doomich/admin-allow.conf:ro
+    networks: [backend]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  backend: {}
+
+volumes:
+  pgdata: {}
+  valkey: {}
+  storage: {}
+  registry: {}
+  models: {}
+  acme: {}

@@ -35,13 +35,11 @@ def _run(coro):
 @app.command()
 def migrate(revision: str = "head") -> None:
     """Применить миграции БД."""
-    from pathlib import Path
-
     from alembic import command
-    from alembic.config import Config
 
-    cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    command.upgrade(cfg, revision)
+    from doomich_api.migrations import alembic_config
+
+    command.upgrade(alembic_config(), revision)
     typer.echo("Миграции применены")
 
 

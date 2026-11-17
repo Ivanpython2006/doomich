@@ -1,0 +1,20 @@
+# контекст сборки — только исходники
+.git
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+**/dist
+**/build
+**/.dart_tool
+**/.idea
+apps/client
+docs
+infra/ansible
+**/storage
+**/registry
+**/*.log
+.env
+**/.env

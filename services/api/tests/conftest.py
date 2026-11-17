@@ -62,10 +62,9 @@ def database():
     _admin_exec("CREATE EXTENSION IF NOT EXISTS vector", _DB)
 
     from alembic import command
-    from alembic.config import Config
+    from doomich_api.migrations import alembic_config
 
-    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    command.upgrade(cfg, "head")
+    command.upgrade(alembic_config(), "head")
     yield
     from doomich_api.db import dispose_engine  # noqa: F401
 

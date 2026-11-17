@@ -1,0 +1,48 @@
+# Разработка на ноутбуке без GPU: демо-модели внутри API, HTTP на порту 8080, база наружу на 15432.
+#
+#   docker compose --env-file infra/compose/dev.env \
+#     -f infra/compose/compose.yaml -f infra/compose/compose.dev.yaml up --build
+#
+# Панель администратора: http://localhost:8080/admin/ (суперадминистратор — см. docs/dev/local.md).
+# Сервисы речи и навигации включаются профилями: --profile speech --profile nav.
+
+x-dev-env: &dev-env
+  DOOMICH_LLM_PROVIDER: fake
+  DOOMICH_EMBEDDINGS_PROVIDER: fake
+  DOOMICH_RERANKER_PROVIDER: fake
+  DOOMICH_ASR_PROVIDER: fake
+  DOOMICH_TTS_PROVIDER: fake
+  DOOMICH_ARGON2_TIME_COST: "1"
+  DOOMICH_ARGON2_MEMORY_KIB: "8192"
+
+services:
+  migrate:
+    environment: *dev-env
+  api:
+    environment: *dev-env
+    command: ["uvicorn", "doomich_api.main:app", "--host=0.0.0.0", "--port=8000", "--no-access-log"]
+  worker:
+    environment: *dev-env
+  worker-heavy:
+    environment: *dev-env
+  beat:
+    environment: *dev-env
+
+  postgres:
+    ports:
+      - "127.0.0.1:15432:5432"
+
+  asr:
+    profiles: [speech]
+  tts:
+    profiles: [speech]
+  nav:
+    profiles: [nav]
+
+  nginx:
+    environment:
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
+    ports: !override
+      - "127.0.0.1:${HTTP_PORT:-8080}:80"
+    volumes: !override
+      - ../nginx/doomich/admin-allow.dev.conf:/etc/nginx/doomich/admin-allow.conf:ro
